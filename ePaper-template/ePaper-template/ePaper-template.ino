@@ -11,18 +11,23 @@
 /* Program identification */ 
 #define PROG    "ePaper-template"
 #define VER     "1.0"
-#define BUILD   "22jun2021 @07:27h"
+#define BUILD   "22jun2021 @15:06h"
 
 // Define the board (used later)
 #define LILYGO_T5_V213
+
+// Other defines
+#define ORIENTATION 1 // 1 and 3 are landscape
 
 #include <boards.h>
 #include <GxEPD.h>
 #include <SD.h>
 #include <FS.h>
+#include <WiFi.h>
 
 // Local includes
 #include "flashscreen.h"
+#include "speaker.h"
 
 // Not sure where this file is hiding :/
 #include <GxGDEH0213B73/GxGDEH0213B73.h>  // 2.13" b/w old panel
@@ -36,26 +41,25 @@
 #include <Fonts/FreeMonoBold24pt7b.h>
 #include <GxIO/GxIO_SPI/GxIO_SPI.h>
 #include <GxIO/GxIO.h>
-#include <WiFi.h>
 
-// Instantiate the flashscreen object
-flashscreen flash;
+// Instantiate my local objects
+flashscreen   flash;
 
+// Not sure where this will be used
 GxIO_Class io(SPI,  EPD_CS, EPD_DC,  EPD_RSET);
+// display will be the class we use to manage the ePaper screen
 GxEPD_Class display(io, EPD_RSET, EPD_BUSY);
-
-
-#if defined(_HAS_SDCARD_) && !defined(_USE_SHARED_SPI_BUS_)
-SPIClass SDSPI(VSPI);
-#endif
 
 #if defined(_GxGDEW0213Z16_H_) || defined(_GxGDEW029Z10_H_) || defined(_GxGDEW027C44_H_) ||defined(_GxGDEW0154Z17_H_) || defined(_GxGDEW0154Z04_H_) || defined(_GxDEPG0290R_H_)
 #define _HAS_COLOR_
 #endif
 
-
 bool setupSDCard(void)
 {
+#if defined(_HAS_SDCARD_) && !defined(_USE_SHARED_SPI_BUS_)
+    SPIClass SDSPI(VSPI);
+#endif
+
 #if defined(_HAS_SDCARD_) && !defined(_USE_SHARED_SPI_BUS_)
     SDSPI.begin(SDCARD_SCLK, SDCARD_MISO, SDCARD_MOSI);
     return SD.begin(SDCARD_CS, SDSPI);
@@ -64,77 +68,8 @@ bool setupSDCard(void)
 #endif
 }
 
-
-void testSpeaker()
-{
-#if defined(_HAS_SPEAKER_)
-#ifdef _HAS_PWR_CTRL_
-    pinMode(SPK_POWER_EN, OUTPUT);
-    digitalWrite(SPK_POWER_EN, HIGH);
-#endif
-    ledcSetup(LEDC_CHANNEL_0, 1000, 8);
-    ledcAttachPin(SPERKER_PIN, LEDC_CHANNEL_0);
-    int i = 3;
-    while (i--) {
-        ledcWriteTone(LEDC_CHANNEL_0, 1000);
-        delay(200);
-        ledcWriteTone(LEDC_CHANNEL_0, 0);
-    }
-#ifdef _HAS_PWR_CTRL_
-    pinMode(SPK_POWER_EN, INPUT);
-#endif
-    ledcDetachPin(SPERKER_PIN);
-#endif
-}
-
-void testWiFi()
-{
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    // WiFi.scanNetworks will return the number of networks found
-    int n = WiFi.scanNetworks();
-
-    Serial.println("scan done");
-    if (n == 0) {
-        Serial.println("no networks found");
-    } else {
-        Serial.print(n);
-        Serial.println(" networks found");
-        for (int i = 0; i < n; ++i) {
-            // Print SSID and RSSI for each network found
-            Serial.print(i + 1);
-            Serial.print(": ");
-            Serial.print(WiFi.SSID(i));
-            Serial.print(" (");
-            Serial.print(WiFi.RSSI(i));
-            Serial.print(")");
-            Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
-            delay(10);
-        }
-    }
-    Serial.println("");
-}
-
-void setup()
-{
-    bool rlst = false;
-    Serial.begin(115200);
-    // Send program details to serial output
-    flash.message(PROG, VER, BUILD);
-
-    Serial.println();
-    Serial.println("setup");
-
-    SPI.begin(EPD_SCLK, EPD_MISO, EPD_MOSI);
-
-    display.init();
-    display.setTextColor(GxEPD_BLACK);
-
-    testSpeaker();
-
-    testWiFi();
-
-    rlst = setupSDCard();
+void showSplashscreen(){
+    bool rlst = setupSDCard();
 
     display.setRotation(0);
     display.fillScreen(GxEPD_WHITE);
@@ -146,7 +81,7 @@ void setup()
 #endif
 
 #if defined(_HAS_SDCARD_)
-    display.setRotation(1);
+    display.setRotation(ORIENTATION);
     display.setCursor(20, display.height() - 15);
     String sizeString = "SD:" + String(SD.cardSize() / 1024.0 / 1024.0 / 1024.0) + "G";
     display.println(rlst ? sizeString : "SD:N/A");
@@ -160,16 +95,92 @@ void setup()
     display.println(str);
 #endif
 
+    display.writeFastHLine(0, 0, 249, 0);
+    display.writeFastHLine(0, 120, 249, 0);
+    display.writeFastVLine(0, 0, 120, 0);
+    display.writeFastVLine(249, 0, 120, 0);
+    
     display.update();
-
-    delay(10000);
-
+    return;
 }
 
-void loop()
+void testWiFi()
 {
-    drawCornerTest();
+    display.fillScreen(GxEPD_WHITE);
+    //changeFont("FreeMonoBold9pt7b", &FreeMonoBold9pt7b);
+    display.setCursor(0,0);
+    display.println("Scanning WiFi networks...");
+    display.update();
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    // WiFi.scanNetworks will return the number of networks found
+    int n = WiFi.scanNetworks();
 
+    display.println("Scan completed\n");
+    display.fillScreen(GxEPD_WHITE);
+    changeFont("FreeMonoBold9pt7b", &FreeMonoBold9pt7b);
+    display.setCursor(0,15);
+    if (n == 0) {
+        display.println("No networks found\n");
+    } else {
+        display.print(n);
+        display.println(" networks found");
+
+        
+        for (int i = 0; i < n; ++i) {
+            // Print SSID and RSSI for each network found
+            display.print(i + 1);
+            display.print(": ");
+            display.print(WiFi.SSID(i));
+            display.print(" (");
+            display.print(WiFi.RSSI(i));
+            display.print(")");
+            display.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+            delay(10);
+        }
+    }
+    display.println("");
+    display.update();
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    // Send program details to serial output
+    flash.message(PROG, VER, BUILD);
+    
+    // Start up the SPI
+    SPI.begin(EPD_SCLK, EPD_MISO, EPD_MOSI);
+    // Start up the ePaper display
+    display.init();
+    display.setTextColor(GxEPD_BLACK);
+    showSplashscreen();
+    delay(5000);
+    
+    Serial.println("\nWiFi setup...");
+
+    testSpeaker();
+
+    testWiFi();
+    
+    delay(10000);
+
+    display.powerDown();
+
+    Serial.println("\nPowering down...");
+
+    esp_sleep_enable_ext1_wakeup(((uint64_t)(((uint64_t)1) << BUTTON_1)), ESP_EXT1_WAKEUP_ALL_LOW);
+
+    esp_deep_sleep_start();
+}
+
+void loop(){
+  // Nothing happens here, we deep sleep instead
+}
+
+void writeText()
+{
     int i = 0;
 
     while (i < 4) {
@@ -179,17 +190,10 @@ void loop()
         //showFont("FreeMonoBold24pt7b", &FreeMonoBold24pt7b);
         i++;
     }
+}
 
-    display.fillScreen(GxEPD_WHITE);
-
-    display.update();
-
-    display.powerDown();
-
-    esp_sleep_enable_ext1_wakeup(((uint64_t)(((uint64_t)1) << BUTTON_1)), ESP_EXT1_WAKEUP_ALL_LOW);
-
-    esp_deep_sleep_start();
-
+void changeFont(const char name[], const GFXfont *f){
+    display.setFont(f);
 }
 
 void showFont(const char name[], const GFXfont *f)
